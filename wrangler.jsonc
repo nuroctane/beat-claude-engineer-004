@@ -1,0 +1,9 @@
+{
+  "name": "beat-claude-engineer-004",
+  "compatibility_date": "2025-10-01",
+  // Static assets only. `python build_site.py` writes site/public.
+  "assets": {
+    "directory": "./site/public",
+    "not_found_handling": "404-page"
+  }
+}

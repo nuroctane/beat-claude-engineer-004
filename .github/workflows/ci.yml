@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 13 * * 1"  # weekly: catch a fixture rotation before a reviewer does
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+      - run: python detect.py fixtures/event_sample.jsonl
+      - run: python cost_model.py
+      - run: python build_site.py
+
+  packet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Challenge validator, strict
+        run: |
+          git clone --depth 1 https://github.com/ericosiu/beat-claude /tmp/beat-claude
+          python /tmp/beat-claude/scripts/validate_submission.py SUBMISSION.md --strict
+      - name: Fixture still matches the live challenge
+        run: python detect.py fixtures/event_sample.jsonl --check-upstream
