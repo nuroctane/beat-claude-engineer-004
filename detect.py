@@ -100,49 +100,56 @@ ACTIONS = {
 ACTION_ORDER = ["quarantine", "compliance", "repair", "exclude", "alert", "info"]
 
 HANDLING = {
-    "INVALID_ENCODING": "Dead-letter the raw bytes. Never transcode by guessing.",
-    "MALFORMED_JSON": "Dead-letter the raw bytes with the tenant hint; never repair by "
-                      "guessing. Count per tenant so a broken SDK build shows up as a rate.",
-    "NOT_AN_OBJECT": "Dead-letter. Valid JSON that isn't an event is a client bug, not data.",
-    "MISSING_EVENT_ID": "Quarantine. Without an id there is no idempotency key, so a "
-                        "retry would double count.",
-    "MISSING_TENANT": "Quarantine. No tenant means no partition, no retention policy, no "
-                      "deletion owner. Do not infer tenant from path or referrer.",
-    "BAD_IDENTIFIER": "Keep the event, drop the unusable id. Numbers are read as strings; "
-                      "objects and lists can't be stitched to anyone.",
-    "PRIVACY_REQUEST_VIA_SDK": "Do not execute from the event stream: it is unauthenticated "
-                               "client input. Route to the compliance queue; the tenant "
-                               "confirms through the authenticated deletion API.",
-    "DELETION_SCOPE": "Pre-identify anonymous history is personal data once stitched. "
-                      "Deletion walks the identity graph, not just user_id.",
-    "PII_IN_PAYLOAD": "Hash or drop at the collector before Kinesis, per tenant policy. Raw "
-                      "PII in an append-only log turns every deletion into a rewrite.",
-    "DUPLICATE_RETRY": "Drop the later copy. Idempotency key is (tenant_id, event_id); the "
-                       "first copy seen wins. Counted, not silently eaten.",
-    "LEGACY_SCHEMA": "Normalize through a versioned mapping table. Old SDKs stay in the "
-                     "field forever; rejecting them is data loss.",
+    "INVALID_ENCODING": "Send the raw bytes to the dead-letter queue. Don't guess the encoding.",
+    "MALFORMED_JSON": "Send the raw bytes to the dead-letter queue with the tenant hint, and don't "
+                      "repair it by guessing. Count these per tenant, so a broken SDK build shows "
+                      "up as a rate.",
+    "NOT_AN_OBJECT": "Send it to the dead-letter queue. Valid JSON that isn't an event object is a "
+                     "client bug.",
+    "MISSING_EVENT_ID": "Quarantine it. Without an id there's no idempotency key, so a retry would "
+                        "count twice.",
+    "MISSING_TENANT": "Quarantine it. Without a tenant there's no partition to write to, no retention "
+                      "policy, and nobody who can ask for a deletion. Don't infer the tenant from "
+                      "the path or referrer.",
+    "BAD_IDENTIFIER": "Keep the event and drop the unusable id. A number is read as a string. An "
+                      "object or a list can't be stitched to anyone.",
+    "PRIVACY_REQUEST_VIA_SDK": "Don't execute it. It's unauthenticated client input, so anyone with a "
+                               "browser console can send one. Route it to the compliance queue, "
+                               "where the tenant confirms it through the authenticated deletion API.",
+    "DELETION_SCOPE": "Anonymous history from before the identify call is personal data once it's "
+                      "stitched to a user. The delete walks the identity graph instead of matching "
+                      "user_id alone.",
+    "PII_IN_PAYLOAD": "Hash or drop it at the collector, before it reaches Kinesis, per the tenant's "
+                      "policy. Raw PII in an append-only log turns every deletion into a rewrite.",
+    "DUPLICATE_RETRY": "Drop the later copy and count it. The idempotency key is (tenant_id, "
+                       "event_id), and the first copy seen wins.",
+    "LEGACY_SCHEMA": "Normalize it through a versioned mapping table. Old SDK versions stay in the "
+                     "field for years, and rejecting them is data loss.",
     "PROPERTIES_NOT_OBJECT": "Keep the value under properties._raw and alert the SDK owner.",
-    "MISSING_RECEIVED_AT": "The collector stamps received_at at ingest. This record never "
-                           "had one, so its event time is client-only and untrusted.",
-    "CLOCK_SKEW_FUTURE": "An event can't happen after we received it. Bucket on received_at "
-                         "past tolerance; keep client ts for ordering inside a session.",
-    "TIMESTAMP_IMPLAUSIBLE": "Bucket on received_at; keep client ts as an attribute only.",
-    "TIMESTAMP_UNPARSEABLE": "Bucket on received_at; keep the original string.",
-    "TIMESTAMP_NO_TZ": "Read as UTC and flag. A naive timestamp from a browser is local time "
-                       "more often than not.",
-    "BOT_SUSPECTED": "Keep raw, tag is_bot, exclude from dashboards, segments and "
-                     "personalization triggers. Never delete on a heuristic.",
-    "CLIENT_COMPUTED_METRIC": "Store as reported, never segment on it. Segments like "
-                              "'viewed pricing 3x' are computed server-side.",
-    "CLIENT_COUNTER_MISMATCH": "Not proof the client is wrong: the sample is a slice of the "
-                               "day. Proof the number can't be a trigger input.",
-    "EVENT_ID_COLLISION": "Keep both and alert: a buggy id generator or a replay with "
-                          "mutation. Not safe to dedupe.",
-    "UNKNOWN_EVENT_TYPE": "Store raw, exclude from aggregates, alert the owning team.",
-    "ANON_MULTI_USER": "Shared device or a bad identify call. Keep the history, never "
+    "MISSING_RECEIVED_AT": "The collector stamps received_at at ingest. This record never got one, so "
+                           "the only time it carries is the client's.",
+    "CLOCK_SKEW_FUTURE": "An event can't happen after we received it. Past the "
+                         f"{CLOCK_TOLERANCE.total_seconds():.0f}s tolerance, bucket it on received_at "
+                         "and keep the client ts for ordering within the session.",
+    "TIMESTAMP_IMPLAUSIBLE": "Bucket it on received_at. The client ts stays as an attribute and "
+                             "nothing more.",
+    "TIMESTAMP_UNPARSEABLE": "Bucket it on received_at and keep the original string.",
+    "TIMESTAMP_NO_TZ": "Read it as UTC and flag it. A browser timestamp with no offset is usually "
+                       "local time.",
+    "BOT_SUSPECTED": "Keep it raw and tag it is_bot. It stays out of dashboards, segments and "
+                     "personalization triggers. A heuristic is never grounds to delete data.",
+    "CLIENT_COMPUTED_METRIC": "Store it as reported and never segment on it. Segments like "
+                              "'viewed pricing 3x' are computed on the server.",
+    "CLIENT_COUNTER_MISMATCH": "The sample is a slice of the day, so this doesn't prove the client "
+                               "wrong. It does prove the number can't drive a trigger.",
+    "EVENT_ID_COLLISION": "Keep both copies and alert. It's a buggy id generator or a replay that "
+                          "changed the payload, and deduping would lose data.",
+    "UNKNOWN_EVENT_TYPE": "Store it raw, keep it out of aggregates and alert the team that owns "
+                          "the SDK.",
+    "ANON_MULTI_USER": "This is a shared device or a bad identify call. Keep the history, and never "
                        "auto-merge two known users.",
-    "LATE_ARRIVAL": "Accept into raw and the warehouse. Real-time windows are closed, so it "
-                    "lands in the next reconciliation pass.",
+    "LATE_ARRIVAL": "Accept it into raw storage and the warehouse. The real-time windows have "
+                    "closed, so the next reconciliation pass picks it up.",
 }
 assert ACTIONS.keys() == HANDLING.keys()
 
@@ -379,7 +386,7 @@ def analyze_bytes(raw: bytes) -> Report:
             continue
         report.parsed += 1
         # Re-serialized from the masked record, so key-hinted PII (names,
-        # addresses) is masked too, not just what looks like an email or phone.
+        # addresses) is masked too, not only what looks like an email or phone.
         safe = json.dumps(mask_obj(rec), ensure_ascii=False, separators=(",", ":"))
         report.events.append(Event(line_no, _safe_id(rec.get("event_id")),
                                    _safe_id(rec.get("tenant_id")),
@@ -458,7 +465,7 @@ def analyze_bytes(raw: bytes) -> Report:
             elif -skew > IMPLAUSIBLE_SKEW:
                 add("LATE_ARRIVAL", eid, line_no, f"arrived {span(skew)} after the event")
 
-        # The whole event, not just properties: SDKs also put traits and context at the top.
+        # Scan the whole event, since SDKs also put traits and context at the top level.
         pii = scan_pii(ev)
         if pii:
             shown = ", ".join(f"{p}={mask(v)}" for p, v in pii)

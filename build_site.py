@@ -91,7 +91,7 @@ MARK_KEYS = {
 FACE_VALUE = [
     ("evt-0017", 18, "The deletion request.",
      "Anyone with a browser console can send it. Executing it means anyone can wipe any "
-     "user's history. It opens a verified request; it isn't one."),
+     "user's history. Treat it as the reason to open a verified request."),
     ("evt-0019", 20, "<code>count_today: 3</code>.",
      "The sample shows one pricing view. That doesn't prove the client wrong in a 25-row "
      "slice. It proves the number can't drive a personalization trigger."),
@@ -100,7 +100,7 @@ FACE_VALUE = [
      "be a customer's own uptime monitor. Tag and exclude, never delete."),
     ("evt-0006", 7, "The 65-minute skew.",
      "Exactly 1h05m with matching milliseconds looks like a timezone bug, not drift. One "
-     "event isn't enough to write a correction rule. Until then, received_at."),
+     "event isn't enough to write a correction rule, so received_at wins for now."),
     ("n = 25", None, "Any rate from this sample.",
      "Four of 23 unique events are bot-tagged. Calling that 17% bot traffic would be "
      "making it up."),
@@ -240,7 +240,7 @@ def render_cost(m: dict) -> str:
     </figcaption>
   </figure>
   <table class="costs">
-    <caption>Monthly. AWS unit prices checked against AWS pricing pages on Oct 22, 2026. ClickHouse, transfer and observability are <em>estimates</em>, not quotes.</caption>
+    <caption>Monthly. AWS and ClickHouse prices checked against their pricing pages on Oct 22, 2026, with ClickHouse at its published Enterprise rate as a ceiling. Lambda, transfer and observability are <em>estimates</em>.</caption>
     <tbody>{lines}</tbody>
     <tfoot>
       <tr><td>New pipeline</td><td class="num">{usd(m['new_total'])}</td></tr>
@@ -255,7 +255,35 @@ def packet_is_final() -> bool:
     return PDF.exists() and "TODO DAVID" not in (ROOT / "SUBMISSION.md").read_text(encoding="utf-8")
 
 
-def render_page(report, cost: dict, tests: int, pdf: bool = False) -> str:
+def render_bench(r: dict | None) -> str:
+    """The load test section, straight from bench/results.json. Empty if it hasn't run."""
+    if not r:
+        return ""
+    s, d, q = r["stream"], r["dedupe"], r["queries"]
+    p95 = lambda name: next(x["p95_ms"] for x in q[name] if x["concurrency"] == 16)
+    tile = p95("dashboard: events per minute, last 15 min (rollup)")
+    raw = p95("segment: viewed /pricing 3+ times today (raw)")
+    roll = p95("segment: viewed /pricing 3+ times today (per-visitor rollup)")
+    return f"""
+  <section id="bench" aria-labelledby="bench-h">
+    <div class="sec-head">
+      <h2 id="bench-h">ClickHouse at one day's volume</h2>
+      <p>ClickHouse is the one new database, so I load-tested it: {r['load']['rows_generated']:,} synthetic events
+        on 4 vCPU and 12 GiB, about two Cloud compute units. One replica, local SSD, a day of data. Read it as a floor.</p>
+    </div>
+    <dl class="sizing">
+      <div><dt>ingest</dt><dd>{s['rows_per_s']:,}<small>/s</small></dd><dd class="tag">observed · design peak {s['target_rows_per_s']:,}/s, {s['errors']} errors</dd></div>
+      <div><dt>insert to queryable</dt><dd>{s['ack_p95_ms'] / 1000:.1f}<small>s</small></dd><dd class="tag">observed · p95 at the design peak</dd></div>
+      <div><dt>dashboard tile</dt><dd>{tile:,.0f}<small>ms</small></dd><dd class="tag">observed · p95, 16 concurrent users</dd></div>
+      <div><dt>segment query</dt><dd>{roll:,.0f}<small>ms</small></dd><dd class="tag">observed · p95 from the per-visitor rollup, {raw:,.0f} ms scanning raw events</dd></div>
+    </dl>
+    <p class="note">{d['retries_surviving_final']:,} of {d['retries_injected']:,} injected retries survived the ReplacingMergeTree merge
+      because they straddled an hour, and the 1-minute rollup counted {d['rollup_overcount']:,} of them. Dedupe happens in Redis,
+      before ClickHouse, and reconciliation counts distinct event_id. <a href="{REPO}/blob/main/bench/RESULTS.md">Full results and method</a>.</p>
+  </section>"""
+
+
+def render_page(report, cost: dict, tests: int, pdf: bool = False, bench: dict | None = None) -> str:
     rows, per_action = render_rows(report)
     total_lines = len(report.events)
     chips = [f'<button class="chip" type="button" data-filter="all" aria-pressed="true">all <b>{total_lines}</b></button>']
@@ -307,7 +335,7 @@ def render_page(report, cost: dict, tests: int, pdf: bool = False) -> str:
 <header class="top glass">
   <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>Engineer 004</a>
   <nav aria-label="Sections">
-    <a href="#ledger">fixture</a><a href="#face">face value</a><a href="#shape">pipeline</a><a href="#math">math</a><a href="#cutover">cutover</a>
+    <a href="#ledger">fixture</a><a href="#face">face value</a><a href="#shape">pipeline</a><a href="#bench">load test</a><a href="#math">math</a><a href="#cutover">cutover</a>
   </nav>
   <a class="out" href="{REPO}">repo <span aria-hidden="true">↗</span></a>
 </header>
@@ -329,7 +357,7 @@ def render_page(report, cost: dict, tests: int, pdf: bool = False) -> str:
   <section id="ledger" class="ledger-wrap" aria-labelledby="ledger-h">
     <div class="sec-head">
       <h2 id="ledger-h">The fixture, line by line</h2>
-      <p>Open a line for the raw event and the handling. Filters dim lines instead of hiding them, so the file stays the file.</p>
+      <p>Open a line to see the raw event and what the pipeline does with it. Filters dim lines instead of hiding them, so the line numbers still match the file.</p>
     </div>
     <div class="filters glass" role="group" aria-label="Filter by what the pipeline does">{''.join(chips)}</div>
     <p class="vh" id="status" role="status"></p>
@@ -340,7 +368,7 @@ def render_page(report, cost: dict, tests: int, pdf: bool = False) -> str:
   <section id="face" aria-labelledby="face-h">
     <div class="sec-head">
       <h2 id="face-h">What I won't take at face value</h2>
-      <p>The planted issues are the easy part. These are the conclusions the data seems to offer that I'd refuse.</p>
+      <p>The planted issues are the easy part. These are the conclusions the data seems to offer that I'd refuse to draw.</p>
     </div>
     <ul class="face">{face}</ul>
   </section>
@@ -352,21 +380,23 @@ def render_page(report, cost: dict, tests: int, pdf: bool = False) -> str:
     </div>
     <div class="flow">
       <div class="lane"><p class="lane-h">ingest</p>
-        <div class="node glass"><h3>JS SDK</h3><p>unchanged. The fixture suggests it retries (evt-0002 arrives twice).</p></div>
-        <div class="node glass"><h3>Collector on ECS</h3><p>stamps received_at, strips PII, acks only after Kinesis does</p></div>
+        <div class="node glass"><h3>JS SDK</h3><p>Unchanged. The fixture suggests it retries, since evt-0002 arrives twice.</p></div>
+        <div class="node glass"><h3>Collector on ECS</h3><p>Stamps received_at and strips PII. It acks the SDK only after Kinesis confirms every record.</p></div>
       </div>
       <div class="lane"><p class="lane-h">stream</p>
-        <div class="node glass key"><h3>Kinesis</h3><p>7 days of replay. Partition key tenant:anon. Chosen over MSK: no brokers for two people to run.</p></div>
-        <div class="node glass"><h3>Lambda processor</h3><p>this repo's detect.py, in production form. Dedupe, normalize, quarantine.</p></div>
+        <div class="node glass key"><h3>Kinesis</h3><p>Seven days of replay, partitioned on tenant and visitor. Picked over MSK because there are no brokers for two people to run.</p></div>
+        <div class="node glass"><h3>Lambda processor</h3><p>This repo's detect.py in production form. It dedupes, normalizes and quarantines.</p></div>
       </div>
       <div class="lane"><p class="lane-h">serve</p>
-        <div class="node glass"><h3>S3 Parquet</h3><p>system of record. Replay, backfill, warehouse export.</p></div>
-        <div class="node glass"><h3>Redis</h3><p>personalization hot path, about 2s from click (estimated). Dedupe keys live 1 hour.</p></div>
-        <div class="node glass"><h3>ClickHouse</h3><p>dashboards and segments. ReplacingMergeTree on (tenant, event_id) backstops dedupe.</p></div>
+        <div class="node glass"><h3>S3 Parquet</h3><p>The system of record. Replay, backfill and warehouse export all read from it.</p></div>
+        <div class="node glass"><h3>Redis</h3><p>The personalization hot path, about 2s from click (estimated). Dedupe keys live for an hour.</p></div>
+        <div class="node glass"><h3>ClickHouse</h3><p>Dashboards read a 1-minute rollup and segments read per-visitor daily counts. A ReplacingMergeTree keyed on tenant, hour and event_id backstops the dedupe.</p></div>
       </div>
     </div>
     <p class="note">Deletion never rides the event stream. It comes in through an authenticated tenant API, walks the identity graph, and reaches S3, ClickHouse and Redis inside GDPR's one month.</p>
   </section>
+
+{render_bench(bench)}
 
   <section id="math" aria-labelledby="math-h">
     <div class="sec-head">
@@ -382,7 +412,7 @@ def render_page(report, cost: dict, tests: int, pdf: bool = False) -> str:
       <p>No SDK change, no broken integration. Every step has a way back that doesn't need a deploy.</p>
     </div>
     <ol class="phases">{phases}</ol>
-    <p class="note">Verified means distinct (tenant_id, event_id) at the raw layer, both sides, for 14 days. Never dashboard totals: the old system may count retries twice.</p>
+    <p class="note">Verified means distinct (tenant_id, event_id) match at the raw layer on both sides for 14 days. Dashboard totals don't count, since the old system may count retries twice.</p>
   </section>
 
   <section class="run" aria-labelledby="run-h">
@@ -424,7 +454,10 @@ def main() -> None:
     pdf = packet_is_final()
     if pdf:
         shutil.copy2(PDF, OUT / PDF.name)
-    (OUT / "index.html").write_text(render_page(report, cost, tests, pdf=pdf), encoding="utf-8")
+    results = ROOT / "bench" / "results.json"
+    bench = json.loads(results.read_text(encoding="utf-8")) if results.exists() else None
+    (OUT / "index.html").write_text(render_page(report, cost, tests, pdf=pdf, bench=bench),
+                                    encoding="utf-8")
     (OUT / "report.json").write_text(json.dumps(asdict(report), indent=2) + "\n", encoding="utf-8")
     (OUT / "cost.json").write_text(json.dumps(cost, indent=2) + "\n", encoding="utf-8")
     (OUT / "404.html").write_text(

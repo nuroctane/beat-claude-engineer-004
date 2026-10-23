@@ -1,5 +1,6 @@
 """The cost model's arithmetic and the report page's contract."""
 
+import json
 import re
 import sys
 import unittest
@@ -59,6 +60,16 @@ class Page(unittest.TestCase):
     def test_hero_counts_come_from_the_report(self):
         self.assertIn("Twenty-five lines.", self.html)
         self.assertIn("Eleven clean events.", self.html)
+
+    def test_load_test_section_comes_from_results(self):
+        results = ROOT / "bench" / "results.json"
+        if not results.exists():
+            self.skipTest("benchmark hasn't run")
+        r = json.loads(results.read_text(encoding="utf-8"))
+        html = render_page(analyze(ROOT / "fixtures" / "event_sample.jsonl"), cost_model.compute(),
+                           tests=0, bench=r)
+        self.assertIn('id="bench"', html)
+        self.assertIn(f"{r['stream']['rows_per_s']:,}", html)
 
     def test_spell(self):
         self.assertEqual([spell(n) for n in (0, 11, 20, 25, 99, 1200)],

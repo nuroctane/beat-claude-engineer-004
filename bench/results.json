@@ -1,0 +1,128 @@
+{
+  "ran_at": "2026-10-22 22:19 UTC",
+  "clickhouse_version": "24.8.14.39",
+  "container": {
+    "cpus": "4",
+    "memory": "12g"
+  },
+  "load": {
+    "rows_generated": 50000000,
+    "load_seconds": 286.9,
+    "load_rows_per_s": 174292,
+    "rows_with_retries": 50249339,
+    "compressed_bytes": 2957263955,
+    "uncompressed_bytes": 3710571143,
+    "compressed_bytes_per_event": 58.9
+  },
+  "tenant_rows": {
+    "t-001": 5601327,
+    "t-005": 1475237,
+    "t-040": 198994,
+    "t-250": 32274
+  },
+  "dedupe": {
+    "unique_events": 50000000,
+    "rows_before_merge": 50249339,
+    "retries_injected": 249339,
+    "rows_with_final": 50000423,
+    "retries_surviving_final": 423,
+    "rollup_events": 48741879,
+    "unique_non_bot_events": 48499872,
+    "rollup_overcount": 242007
+  },
+  "queries": {
+    "dashboard: events per minute, last 15 min (rollup)": [
+      {
+        "concurrency": 1,
+        "qps": 124.953,
+        "p50_ms": 7.0,
+        "p95_ms": 9.0,
+        "p99_ms": 10.0
+      },
+      {
+        "concurrency": 16,
+        "qps": 161.973,
+        "p50_ms": 100.0,
+        "p95_ms": 117.0,
+        "p99_ms": 185.0
+      }
+    ],
+    "dashboard: top pages and visitors, last hour (rollup)": [
+      {
+        "concurrency": 1,
+        "qps": 65.9,
+        "p50_ms": 12.0,
+        "p95_ms": 28.0,
+        "p99_ms": 31.0
+      },
+      {
+        "concurrency": 16,
+        "qps": 78.846,
+        "p50_ms": 200.0,
+        "p95_ms": 306.0,
+        "p99_ms": 326.0
+      }
+    ],
+    "segment: viewed /pricing 3+ times today (raw)": [
+      {
+        "concurrency": 1,
+        "qps": 24.612,
+        "p50_ms": 30.0,
+        "p95_ms": 103.0,
+        "p99_ms": 120.0
+      },
+      {
+        "concurrency": 16,
+        "qps": 15.283,
+        "p50_ms": 724.0,
+        "p95_ms": 2398.0,
+        "p99_ms": 2713.0
+      }
+    ],
+    "segment: viewed /pricing 3+ times today (per-visitor rollup)": [
+      {
+        "concurrency": 1,
+        "qps": 69.715,
+        "p50_ms": 11.0,
+        "p95_ms": 27.0,
+        "p99_ms": 29.0
+      },
+      {
+        "concurrency": 16,
+        "qps": 59.225,
+        "p50_ms": 216.0,
+        "p95_ms": 422.0,
+        "p99_ms": 519.0
+      }
+    ],
+    "reconciliation: exact hourly count with FINAL (raw)": [
+      {
+        "concurrency": 1,
+        "qps": 39.739,
+        "p50_ms": 22.0,
+        "p95_ms": 49.0,
+        "p99_ms": 55.0
+      },
+      {
+        "concurrency": 16,
+        "qps": 33.148,
+        "p50_ms": 418.0,
+        "p95_ms": 822.0,
+        "p99_ms": 940.0
+      }
+    ]
+  },
+  "stream": {
+    "seconds": 46.1,
+    "threads": 12,
+    "batch_rows": 750,
+    "rows_per_s": 8825,
+    "target_rows_per_s": 8681,
+    "requests": 542,
+    "errors": 0,
+    "ack_p50_ms": 1142,
+    "ack_p95_ms": 1197,
+    "ack_p99_ms": 1214,
+    "ack_mean_ms": 1013
+  }
+}

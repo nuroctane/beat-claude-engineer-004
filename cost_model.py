@@ -1,16 +1,18 @@
 """Back-of-envelope sizing and monthly cost for the proposed pipeline.
 
 Every input carries its source label. Change an input, rerun, and the table
-moves with it. AWS unit prices marked [Benchmarked] were checked against these
-pages for us-east-1 on 2026-10-22:
+moves with it. Prices marked [Benchmarked] were checked against these pages
+for us-east-1 on 2026-10-22:
 
-  Kinesis   https://aws.amazon.com/kinesis/data-streams/pricing/
-  Firehose  https://aws.amazon.com/firehose/pricing/
-  Fargate   https://aws.amazon.com/fargate/pricing/
-  Redis     https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/CacheNodes.SupportedTypes.html
+  Kinesis     https://aws.amazon.com/kinesis/data-streams/pricing/
+  Firehose    https://aws.amazon.com/firehose/pricing/
+  Fargate     https://aws.amazon.com/fargate/pricing/
+  Redis       https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/CacheNodes.SupportedTypes.html
+  ClickHouse  https://clickhouse.com/pricing
 
-ClickHouse, ALB, transfer, observability and export are still my estimates,
-not quotes. ClickHouse is about half the total, so it's the line to quote first.
+ClickHouse storage is sized from the measured bytes per event in
+bench/RESULTS.md. Lambda, ALB, transfer, observability and export are still
+my estimates, not quotes.
 
 Usage: python cost_model.py [--json out.json]
 """
@@ -56,7 +58,18 @@ REDIS_NODE_GB = 13.07                     # [Benchmarked] ElastiCache node types
 # Estimates I couldn't check against a price list
 LAMBDA = 400                              # [Estimated] ~3M batch invokes x 512MB x 1s, 4x for retries and fan-out
 ALB = 300                                 # [Estimated] LCU-driven, 1.5B req/mo
-CLICKHOUSE = 6_000                        # [Estimated] managed, 2 replicas, 12 mo hot
+
+# ClickHouse Cloud. Only the Enterprise rate is published for us-east-1, so it's
+# the ceiling; Scale would come in under it. Sized from bench/RESULTS.md: the
+# benchmark ran on 4 vCPU / 12 GiB, and each production replica gets about twice that.
+CH_UNIT_HOUR = 0.3903                     # [Benchmarked] clickhouse.com/pricing, Enterprise, per 8 GiB / 2 vCPU unit
+CH_UNITS_PER_REPLICA = 4                  # [Assumed] 32 GiB / 8 vCPU, about 2x the benchmark container
+CH_REPLICAS = 2                           # [Assumed] two availability zones
+CH_STORAGE_TB_MONTH = 25.30               # [Benchmarked] clickhouse.com/pricing, compressed TB-month
+CH_BYTES_PER_EVENT = 58.9                 # [Observed] bench/RESULTS.md, compressed on disk
+CH_ROLLUP_OVERHEAD = 1.15                 # [Assumed] 1-minute and per-visitor rollups on top of raw
+CH_HOT_MONTHS = 12                        # [Assumed] a year of events kept queryable
+CH_BACKUP_COPIES = 1                      # [Benchmarked] default: one daily backup, billed like storage
 TRANSFER_NAT = 1_500                      # [Estimated] cross-AZ + NAT + egress
 OBSERVABILITY = 1_000                     # [Estimated] CloudWatch + alerting
 WAREHOUSE_EXPORT = 1_000                  # [Estimated] Parquet share + egress to BigQuery
@@ -92,6 +105,10 @@ def compute() -> dict:
     firehose_billed_gb = events_month * max(EVENT_BYTES, FIREHOSE_RECORD_ROUNDING) / 1e9
     firehose_s3 = (firehose_billed_gb * (FIREHOSE_PER_GB + FIREHOSE_PARQUET_PER_GB)
                    + parquet_gb_month * 12 * S3_PER_GB_MONTH)
+    ch_compute = CH_REPLICAS * CH_UNITS_PER_REPLICA * HOURS * CH_UNIT_HOUR
+    ch_storage_tb = (events_month * CH_HOT_MONTHS * CH_BYTES_PER_EVENT * CH_ROLLUP_OVERHEAD
+                     * (1 + CH_BACKUP_COPIES) / 1e12)
+    clickhouse = ch_compute + ch_storage_tb * CH_STORAGE_TB_MONTH
     # Dedupe memory at design peak for the whole window, against a 24h window.
     dedupe_gb = design_eps * DEDUPE_WINDOW_S * DEDUPE_BYTES_PER_KEY / 1e9
     dedupe_gb_24h_peak_day = EVENTS_PER_DAY * PEAK_HOUR_FACTOR * DEDUPE_BYTES_PER_KEY / 1e9
@@ -102,7 +119,7 @@ def compute() -> dict:
         ("Firehose + S3 raw archive (yr-1 steady state)", firehose_s3),
         ("Lambda stream processing", LAMBDA),
         ("ElastiCache Redis (hot profiles, dedupe)", REDIS),
-        ("ClickHouse (dashboards, segments)", CLICKHOUSE),
+        ("ClickHouse Cloud (dashboards, segments)", clickhouse),
         ("Data transfer / NAT", TRANSFER_NAT),
         ("Observability", OBSERVABILITY),
         ("Warehouse export", WAREHOUSE_EXPORT),
@@ -116,6 +133,7 @@ def compute() -> dict:
             "events_month": events_month, "raw_gb_month": raw_gb_month,
             "parquet_gb_month": parquet_gb_month,
             "firehose_billed_gb": firehose_billed_gb,
+            "clickhouse_storage_tb": ch_storage_tb, "clickhouse_compute_usd": ch_compute,
             "dedupe_gb": dedupe_gb, "dedupe_gb_24h_peak_day": dedupe_gb_24h_peak_day,
             "redis_node_gb": REDIS_NODE_GB,
         },

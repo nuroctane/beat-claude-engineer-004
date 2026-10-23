@@ -232,7 +232,7 @@ details[open] > .row-head { background: rgb(255 255 255 / 4%); }
   padding: 0 12px 14px calc(2.25rem + 20px);
 }
 .row-inner > * { margin: 0; }
-/* Opening settles in from just above. Only opacity and transform move, and a
+/* Opening settles in from slightly above. Only opacity and transform move, and a
    keyboard toggle skips it: those come fast and shouldn't feel late. */
 details[open] > .row-inner { animation: row-in 200ms var(--ease); }
 .row.instant details[open] > .row-inner { animation: none; }

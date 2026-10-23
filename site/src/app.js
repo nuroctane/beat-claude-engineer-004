@@ -49,7 +49,7 @@
     if (ledger.dataset.filter !== 'all') chips[0].click();
     row.classList.add('instant');
     detailsOf(row).open = true;
-    // 'start' plus html's scroll-padding parks it just under the sticky filters.
+    // 'start' plus html's scroll-padding parks it right under the sticky filters.
     // Smooth scroll rides rAF, which a background tab pauses, so jump when hidden.
     const smooth = !reduced.matches && !document.hidden;
     row.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
